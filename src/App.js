@@ -60,7 +60,7 @@ export default function App() {
   const [locality, setLocality] = useState(null);
   async function fetchReadings() {
     try {
-      const response = await fetch("http://localhost:3001/readings/esp32_node_1");
+      const response = await fetch("https://airchain-server-c0cma4dcc6fgbhdd.centralindia-01.azurewebsites.net/readings/esp32_node_1");
       const data = await response.json();
 
       if (data.success) {
@@ -78,7 +78,7 @@ export default function App() {
         setReadings(sorted);
       }
 
-      const localityRes = await fetch("http://localhost:3001/locality/Bengaluru");
+      const localityRes = await fetch("https://airchain-server-c0cma4dcc6fgbhdd.centralindia-01.azurewebsites.net/locality/Bengaluru");
       const localityData = await localityRes.json();
       if (localityData.success) {
         setLocality(localityData.locality);
