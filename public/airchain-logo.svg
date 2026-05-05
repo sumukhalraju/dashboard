@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title>Airchain Logo</title>
+  <desc>Airflow lines with linked chain</desc>
+  <path d="M6 18c10-8 20-8 30 0" fill="none" stroke="#14F195" stroke-width="4" stroke-linecap="round"/>
+  <path d="M6 28c10-8 20-8 30 0" fill="none" stroke="#14F195" stroke-width="4" stroke-linecap="round"/>
+  <path d="M6 38c10-8 20-8 30 0" fill="none" stroke="#14F195" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="30" cy="38" rx="10" ry="8" fill="none" stroke="#9945FF" stroke-width="4"/>
+  <ellipse cx="44" cy="26" rx="10" ry="8" fill="none" stroke="#9945FF" stroke-width="4"/>
+</svg>

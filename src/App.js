@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import logo from "./assets/airchain-logo.svg";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const WALLET_ADDRESS = "BxaE4QnHqtKdLHvSi22KN574k8PNLSZvWAkq8fnC7sWz";
@@ -103,7 +104,10 @@ export default function App() {
   return (
     <div style={{ background: "#0D0D1A", minHeight: "100vh", color: "white", fontFamily: "monospace", padding: "24px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ color: "#9945FF", fontSize: "28px", margin: 0 }}>AirChain</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <img src={logo} alt="Airchain logo" style={{ width: "32px", height: "32px" }} />
+          <h1 style={{ color: "#9945FF", fontSize: "28px", margin: 0 }}>AirChain</h1>
+        </div>
         <p style={{ color: "#8888AA", margin: "4px 0 0 0" }}>Decentralized Air Quality Monitor — Solana Devnet</p>
         {lastUpdated && (
           <p style={{ color: "#555577", fontSize: "12px", margin: "4px 0 0 0" }}>Last updated: {lastUpdated}</p>
