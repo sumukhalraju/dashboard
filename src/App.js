@@ -13,6 +13,16 @@ function fetchWithTimeout(url, timeout = FETCH_TIMEOUT) {
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
+async function fetchJSON(url) {
+  const res = await fetchWithTimeout(url);
+  const text = await res.text();
+  try {
+    return { ok: res.ok, data: JSON.parse(text) };
+  } catch {
+    return { ok: false, error: `Server returned invalid response (HTTP ${res.status})` };
+  }
+}
+
 function parseAnchorValue(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === "number") return value;
@@ -181,9 +191,16 @@ export default function App() {
       prev.map((r) => (r.index === index ? { ...r, txLoading: true, txLookupFailed: false } : r))
     );
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/tx-signature/esp32_node_1/${index}`, 8000);
+      const { data, error: jsonError } = await fetchJSON(`${API_BASE}/tx-signature/esp32_node_1/${index}`);
       if (!mountedRef.current) return;
-      const data = await res.json();
+      if (jsonError || !data) {
+        setReadings((prev) =>
+          prev.map((r) =>
+            r.index === index ? { ...r, txLoading: false, txLookupFailed: true } : r
+          )
+        );
+        return;
+      }
       if (data.success && data.signature) {
         setReadings((prev) =>
           prev.map((r) =>
@@ -223,14 +240,20 @@ export default function App() {
     for (let j = 0; j < SIG_CONCURRENCY; j++) next();
   }, [fetchTxSignature]);
 
-  const fetchReadings = useCallback(async () => {
+  const fetchReadings = useCallback(async (isInitial = false) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     try {
+      if (isInitial) setLoading(true);
       setError(null);
-      const response = await fetchWithTimeout(`${API_BASE}/readings/esp32_node_1`);
+      const { data, error: jsonError } = await fetchJSON(`${API_BASE}/readings/esp32_node_1`);
       if (!mountedRef.current) return;
-      const data = await response.json();
+
+      if (jsonError) {
+        if (isInitial) setReadings([]);
+        setError(jsonError);
+        return;
+      }
 
       if (data.success) {
         const sorted = data.readings
@@ -252,11 +275,10 @@ export default function App() {
       }
 
       try {
-        const localityRes = await fetchWithTimeout(`${API_BASE}/locality/Bengaluru`);
+        const { data: locData } = await fetchJSON(`${API_BASE}/locality/Bengaluru`);
         if (!mountedRef.current) return;
-        const localityData = await localityRes.json();
-        if (localityData.success) {
-          setLocality(localityData.locality);
+        if (locData && locData.success) {
+          setLocality(locData.locality);
         }
       } catch {
         // locality is non-critical
@@ -269,7 +291,7 @@ export default function App() {
       if (err.name === "AbortError") {
         setError("Request timed out. The server or network may be slow.");
       } else {
-        setError("Failed to connect to the server. Please check your connection.");
+        setError(`Failed to connect to server: ${err.message || "unknown error"}`);
       }
       console.error("Error fetching readings:", err);
     } finally {
@@ -281,8 +303,8 @@ export default function App() {
   }, [autoLookupSignatures]);
 
   useEffect(() => {
-    fetchReadings();
-    const interval = setInterval(fetchReadings, 20000);
+    fetchReadings(true);
+    const interval = setInterval(() => fetchReadings(false), 20000);
     return () => clearInterval(interval);
   }, [fetchReadings]);
 
@@ -330,9 +352,9 @@ export default function App() {
       <div className="readings-section">
         <h2 className="readings-title">Recent On-Chain Readings</h2>
 
-        {loading ? (
+        {loading && readings.length === 0 ? (
           <p className="loading-text">Fetching from Solana...</p>
-        ) : error ? (
+        ) : error && readings.length === 0 ? (
           <div className="error-container">
             <p>{error}</p>
             <button
@@ -341,31 +363,39 @@ export default function App() {
                 setLoading(true);
                 setError(null);
                 fetchingRef.current = false;
-                fetchReadings();
+                fetchReadings(true);
               }}
             >
               Retry
             </button>
           </div>
-        ) : readings.length === 0 ? (
+        ) : readings.length === 0 && !loading ? (
           <p className="empty-text">No readings found yet.</p>
         ) : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  {["Timestamp", "Node", "AQI", "CO₂ (ppm)", "Temp (°C)", "Humidity (%)", "Transaction"].map((h) => (
-                    <th key={h}>{h}</th>
+          <>
+            {error && (
+              <div className="error-banner">
+                <span>{error}</span>
+                <button className="error-dismiss" onClick={() => setError(null)} aria-label="Dismiss">x</button>
+              </div>
+            )}
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    {["Timestamp", "Node", "AQI", "CO₂ (ppm)", "Temp (°C)", "Humidity (%)", "Transaction"].map((h) => (
+                      <th key={h}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {readings.map((r) => (
+                    <ReadingRow key={r.index} reading={r} onTxClick={fetchTxSignature} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {readings.map((r) => (
-                  <ReadingRow key={r.index} reading={r} onTxClick={fetchTxSignature} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
