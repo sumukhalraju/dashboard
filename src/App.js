@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import bs58 from "bs58";
 import logo from "./assets/airchain-logo.svg";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -10,6 +11,19 @@ function getAQIStatus(aqi) {
   if (aqi <= 100) return { label: "Moderate", color: "#FFC300" };
   if (aqi <= 150) return { label: "Unhealthy", color: "#FB8500" };
   return { label: "Hazardous", color: "#FF4444" };
+}
+
+function normalizeSolanaSignature(value) {
+  if (!value || typeof value !== "string") return null;
+  if (value === "no-signature") return null;
+  if (/^[0-9a-fA-F]{128}$/.test(value)) {
+    const bytes = value
+      .match(/.{1,2}/g)
+      .map((pair) => Number.parseInt(pair, 16));
+    return bs58.encode(Uint8Array.from(bytes));
+  }
+  if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(value)) return value;
+  return null;
 }
 
 function StatCard({ label, value, unit, highlight }) {
@@ -30,8 +44,9 @@ function StatCard({ label, value, unit, highlight }) {
 
 function ReadingRow({ r, i }) {
   const status = getAQIStatus(r.aqi);
-  const shortSig = r.signature ? r.signature.slice(0, 8) + "..." : "N/A";
-  const txUrl = "https://solscan.io/tx/" + r.signature + "?cluster=devnet";
+  const normalizedSig = normalizeSolanaSignature(r.signature);
+  const shortSig = normalizedSig ? normalizedSig.slice(0, 8) + "..." : "N/A";
+  const txUrl = normalizedSig ? "https://solscan.io/tx/" + normalizedSig + "?cluster=devnet" : null;
   return (
     <tr style={{ borderBottom: "1px solid #2A2A4A" }}>
       <td style={{ padding: "10px 12px", color: "#8888AA" }}>
@@ -46,9 +61,13 @@ function ReadingRow({ r, i }) {
       <td style={{ padding: "10px 12px" }}>{r.temperature}</td>
       <td style={{ padding: "10px 12px" }}>{r.humidity}</td>
       <td style={{ padding: "10px 12px" }}>
-        <a href={txUrl} target="_blank" rel="noreferrer" style={{ color: "#14F195", fontSize: "11px" }}>
-          {shortSig}
-        </a>
+        {normalizedSig ? (
+          <a href={txUrl} target="_blank" rel="noreferrer" style={{ color: "#14F195", fontSize: "11px" }}>
+            {shortSig}
+          </a>
+        ) : (
+          <span style={{ color: "#555577", fontSize: "11px" }}>N/A</span>
+        )}
       </td>
     </tr>
   );
