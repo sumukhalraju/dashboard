@@ -245,7 +245,6 @@ export default function App() {
     fetchingRef.current = true;
     try {
       if (isInitial) setLoading(true);
-      setError(null);
       const { data, error: jsonError } = await fetchJSON(`${API_BASE}/readings/esp32_node_1`);
       if (!mountedRef.current) return;
 
@@ -265,6 +264,7 @@ export default function App() {
           }))
           .reverse();
         if (!mountedRef.current) return;
+        setError(null);
         sigLookupRef.current.clear();
         setReadings(sorted);
         autoLookupSignatures(sorted);
@@ -361,7 +361,6 @@ export default function App() {
               className="retry-btn"
               onClick={() => {
                 setLoading(true);
-                setError(null);
                 fetchingRef.current = false;
                 fetchReadings(true);
               }}
