@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import bs58 from "bs58";
 import logo from "./assets/airchain-logo.svg";
 import "./App.css";
 
 const API_BASE = "https://airchain-server-c0cma4dcc6fgbhdd.centralindia-01.azurewebsites.net";
-const FETCH_TIMEOUT = 15000;
+const FETCH_TIMEOUT = 30000;
+const SIG_CONCURRENCY = 3;
 
 function fetchWithTimeout(url, timeout = FETCH_TIMEOUT) {
   const controller = new AbortController();
@@ -37,20 +38,19 @@ function parseReadingTimestamp(timestamp) {
     const seconds = parsed > 1e12 ? parsed / 1000 : parsed;
     return new Date(seconds * 1000).toISOString();
   }
-  const hexParsed = parseInt(parsed, 16);
-  if (!isNaN(hexParsed)) {
-    return new Date(hexParsed * 1000).toISOString();
-  }
-  const numParsed = Number(parsed);
-  if (!isNaN(numParsed)) {
-    const seconds = numParsed > 1e12 ? numParsed / 1000 : numParsed;
-    return new Date(seconds * 1000).toISOString();
+  if (typeof parsed === "string") {
+    const hexParsed = parseInt(parsed, 16);
+    if (!isNaN(hexParsed) && /^[0-9a-fA-F]+$/.test(parsed)) {
+      return new Date(hexParsed * 1000).toISOString();
+    }
   }
   return null;
 }
 
 function getAQIStatus(aqi) {
-  const v = parseFloat(aqi) || 0;
+  if (aqi === null || aqi === undefined) return { label: "N/A", color: "#555577" };
+  const v = Number(aqi);
+  if (isNaN(v)) return { label: "N/A", color: "#555577" };
   if (v <= 50) return { label: "Good", color: "#14F195" };
   if (v <= 100) return { label: "Moderate", color: "#FFC300" };
   if (v <= 150) return { label: "Unhealthy", color: "#FB8500" };
@@ -81,7 +81,7 @@ function StatCard({ label, value, unit, highlight }) {
     <div className="stat-card" style={{ borderLeftColor: color }}>
       <p className="stat-card-label">{label}</p>
       <p className="stat-card-value" style={{ color: highlight ? status.color : "#fff" }}>
-        {value}{unit}
+        {highlight ? formatValue(value, 1) : value}{unit}
       </p>
       {highlight && (
         <p className="stat-card-status" style={{ color: status.color }}>{status.label}</p>
@@ -96,19 +96,20 @@ function ReadingRow({ reading, onTxClick }) {
   const shortSig = normalizedTxSig ? normalizedTxSig.slice(0, 8) + "..." : null;
   const txUrl = normalizedTxSig ? `https://solscan.io/tx/${normalizedTxSig}?cluster=devnet` : null;
   const timestamp = parseReadingTimestamp(reading.timestamp);
+  const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : "—";
 
-  const handleTxClick = (e) => {
-    e.preventDefault();
-    if (onTxClick && reading.index !== undefined) {
-      onTxClick(reading.index);
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (onTxClick && reading.index !== undefined) {
+        onTxClick(reading.index);
+      }
     }
   };
 
   return (
     <tr>
-      <td style={{ color: "#8888AA" }}>
-        {timestamp ? new Date(timestamp).toLocaleTimeString() : "—"}
-      </td>
+      <td style={{ color: "#8888AA" }}>{timeStr}</td>
       <td className="node-id">{reading.nodeId}</td>
       <td>
         <span style={{ color: status.color, fontWeight: "bold" }}>{formatValue(reading.aqi, 1)}</span>
@@ -119,14 +120,36 @@ function ReadingRow({ reading, onTxClick }) {
       <td>{formatValue(reading.humidity, 1)}</td>
       <td>
         {txUrl ? (
-          <a href={txUrl} target="_blank" rel="noopener noreferrer" className="tx-link">
+          <a
+            href={txUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="tx-link"
+            aria-label={`View transaction ${shortSig} on Solscan (opens in new tab)`}
+          >
             {shortSig}
           </a>
         ) : reading.txLoading ? (
           <span className="tx-loading">Looking up...</span>
+        ) : reading.txLookupFailed ? (
+          <span
+            className="tx-verify"
+            role="button"
+            tabIndex={0}
+            onClick={() => onTxClick && onTxClick(reading.index)}
+            onKeyDown={handleKeyDown}
+          >
+            Retry
+          </span>
         ) : (
-          <span className="tx-loading" style={{ cursor: "pointer" }} onClick={handleTxClick}>
-            {shortSig || "Verify"}
+          <span
+            className="tx-verify"
+            role="button"
+            tabIndex={0}
+            onClick={() => onTxClick && onTxClick(reading.index)}
+            onKeyDown={handleKeyDown}
+          >
+            Verify
           </span>
         )}
       </td>
@@ -140,13 +163,26 @@ export default function App() {
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [locality, setLocality] = useState(null);
+  const mountedRef = useRef(true);
+  const fetchingRef = useRef(false);
+  const sigLookupRef = useRef(new Set());
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const fetchTxSignature = useCallback(async (index) => {
+    if (sigLookupRef.current.has(index)) return;
+    sigLookupRef.current.add(index);
+
     setReadings((prev) =>
-      prev.map((r) => (r.index === index ? { ...r, txLoading: true } : r))
+      prev.map((r) => (r.index === index ? { ...r, txLoading: true, txLookupFailed: false } : r))
     );
     try {
       const res = await fetchWithTimeout(`${API_BASE}/tx-signature/esp32_node_1/${index}`, 8000);
+      if (!mountedRef.current) return;
       const data = await res.json();
       if (data.success && data.signature) {
         setReadings((prev) =>
@@ -156,20 +192,44 @@ export default function App() {
         );
       } else {
         setReadings((prev) =>
-          prev.map((r) => (r.index === index ? { ...r, txLoading: false } : r))
+          prev.map((r) =>
+            r.index === index ? { ...r, txLoading: false, txLookupFailed: true } : r
+          )
         );
       }
     } catch {
+      if (!mountedRef.current) return;
       setReadings((prev) =>
-        prev.map((r) => (r.index === index ? { ...r, txLoading: false } : r))
+        prev.map((r) =>
+          r.index === index ? { ...r, txLoading: false, txLookupFailed: true } : r
+        )
       );
     }
   }, []);
 
+  const autoLookupSignatures = useCallback((readingList) => {
+    const missing = readingList
+      .filter((r) => !r.txSignature && !r.txLoading && !r.txLookupFailed && !sigLookupRef.current.has(r.index))
+      .map((r) => r.index);
+
+    if (missing.length === 0) return;
+
+    let i = 0;
+    const next = () => {
+      if (i >= missing.length || !mountedRef.current) return;
+      const idx = missing[i++];
+      fetchTxSignature(idx).finally(() => setTimeout(next, 200));
+    };
+    for (let j = 0; j < SIG_CONCURRENCY; j++) next();
+  }, [fetchTxSignature]);
+
   const fetchReadings = useCallback(async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     try {
       setError(null);
       const response = await fetchWithTimeout(`${API_BASE}/readings/esp32_node_1`);
+      if (!mountedRef.current) return;
       const data = await response.json();
 
       if (data.success) {
@@ -178,16 +238,22 @@ export default function App() {
             ...r,
             index: i,
             txLoading: false,
+            txLookupFailed: false,
           }))
           .reverse();
+        if (!mountedRef.current) return;
+        sigLookupRef.current.clear();
         setReadings(sorted);
+        autoLookupSignatures(sorted);
       } else {
+        if (!mountedRef.current) return;
         setReadings([]);
         setError(data.error || "Failed to fetch readings");
       }
 
       try {
         const localityRes = await fetchWithTimeout(`${API_BASE}/locality/Bengaluru`);
+        if (!mountedRef.current) return;
         const localityData = await localityRes.json();
         if (localityData.success) {
           setLocality(localityData.locality);
@@ -196,8 +262,10 @@ export default function App() {
         // locality is non-critical
       }
 
+      if (!mountedRef.current) return;
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err) {
+      if (!mountedRef.current) return;
       if (err.name === "AbortError") {
         setError("Request timed out. The server or network may be slow.");
       } else {
@@ -205,9 +273,12 @@ export default function App() {
       }
       console.error("Error fetching readings:", err);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+      fetchingRef.current = false;
     }
-  }, []);
+  }, [autoLookupSignatures]);
 
   useEffect(() => {
     fetchReadings();
@@ -249,8 +320,8 @@ export default function App() {
 
       {latest && (
         <div className="stats-grid">
-          <StatCard label="AQI" value={formatValue(latest.aqi, 1)} unit="" highlight />
-          <StatCard label="CO2" value={formatValue(latest.co2, 1)} unit=" ppm" />
+          <StatCard label="AQI" value={latest.aqi} unit="" highlight />
+          <StatCard label="CO₂" value={formatValue(latest.co2, 1)} unit=" ppm" />
           <StatCard label="Temperature" value={formatValue(latest.temperature, 1)} unit="°C" />
           <StatCard label="Humidity" value={formatValue(latest.humidity, 1)} unit="%" />
         </div>
@@ -269,6 +340,7 @@ export default function App() {
               onClick={() => {
                 setLoading(true);
                 setError(null);
+                fetchingRef.current = false;
                 fetchReadings();
               }}
             >

@@ -6,13 +6,9 @@
   --accent-green: #14F195;
   --text-primary: #fff;
   --text-muted: #8888AA;
-  --text-dim: #555577;
-  --aqi-good: #14F195;
-  --aqi-moderate: #FFC300;
-  --aqi-unhealthy: #FB8500;
-  --aqi-hazardous: #FF4444;
+  --text-dim: #6A6A8A;
+  --focus-outline: #9945FF;
   --radius: 12px;
-  --padding-sm: 12px;
   --padding-md: 16px;
   --padding-lg: 20px;
   --padding-xl: 24px;
@@ -26,7 +22,7 @@
   background: var(--bg-primary);
   min-height: 100vh;
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   padding: var(--padding-xl);
 }
 
@@ -121,6 +117,7 @@
   font-size: 28px;
   font-weight: bold;
   margin: 0;
+  word-break: break-word;
 }
 
 .stat-card-status {
@@ -169,7 +166,6 @@ th {
 
 tbody tr {
   border-bottom: 1px solid var(--border);
-  transition: background 0.15s;
 }
 
 tbody tr:hover {
@@ -189,7 +185,6 @@ td.node-id {
   color: var(--accent-green);
   font-size: 11px;
   text-decoration: none;
-  transition: opacity 0.15s;
 }
 
 .tx-link:hover {
@@ -197,9 +192,32 @@ td.node-id {
   text-decoration: underline;
 }
 
-.tx-na {
-  color: var(--text-dim);
+.tx-link:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.tx-verify {
+  color: var(--accent-green);
   font-size: 11px;
+  cursor: pointer;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  outline: none;
+}
+
+.tx-verify:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.tx-verify:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .tx-loading {
@@ -228,11 +246,23 @@ td.node-id {
   padding: 8px 20px;
   font-size: 13px;
   cursor: pointer;
-  transition: opacity 0.15s;
 }
 
 .retry-btn:hover {
   opacity: 0.9;
+}
+
+.retry-btn:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -319,5 +349,15 @@ td.node-id {
 
   td, th {
     padding: 6px 8px;
+  }
+}
+
+@media (max-width: 360px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-title {
+    font-size: 18px;
   }
 }
