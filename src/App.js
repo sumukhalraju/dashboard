@@ -92,13 +92,12 @@ function StatCard({ label, value, unit, highlight }) {
 
 function ReadingRow({ reading, onTxClick }) {
   const status = getAQIStatus(reading.aqi);
-  const normalizedSig = normalizeSolanaSignature(reading.txSignature || reading.signature);
-  const shortSig = normalizedSig ? normalizedSig.slice(0, 8) + "..." : null;
-  const txUrl = normalizedSig ? `https://solscan.io/tx/${normalizedSig}?cluster=devnet` : null;
+  const normalizedTxSig = normalizeSolanaSignature(reading.txSignature);
+  const shortSig = normalizedTxSig ? normalizedTxSig.slice(0, 8) + "..." : null;
+  const txUrl = normalizedTxSig ? `https://solscan.io/tx/${normalizedTxSig}?cluster=devnet` : null;
   const timestamp = parseReadingTimestamp(reading.timestamp);
 
   const handleTxClick = (e) => {
-    if (txUrl) return;
     e.preventDefault();
     if (onTxClick && reading.index !== undefined) {
       onTxClick(reading.index);
@@ -124,13 +123,11 @@ function ReadingRow({ reading, onTxClick }) {
             {shortSig}
           </a>
         ) : reading.txLoading ? (
-          <span className="tx-loading">Loading...</span>
-        ) : reading.txSignature === null && reading.signature && reading.signature !== "no-signature" ? (
+          <span className="tx-loading">Looking up...</span>
+        ) : (
           <span className="tx-loading" style={{ cursor: "pointer" }} onClick={handleTxClick}>
             {shortSig || "Verify"}
           </span>
-        ) : (
-          <span className="tx-na">N/A</span>
         )}
       </td>
     </tr>
