@@ -1,15 +1,59 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import bs58 from "bs58";
 import logo from "./assets/airchain-logo.svg";
-import { Connection, PublicKey } from "@solana/web3.js";
+import "./App.css";
 
-const WALLET_ADDRESS = "BxaE4QnHqtKdLHvSi22KN574k8PNLSZvWAkq8fnC7sWz";
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const API_BASE = "https://airchain-server-c0cma4dcc6fgbhdd.centralindia-01.azurewebsites.net";
+const FETCH_TIMEOUT = 15000;
+
+function fetchWithTimeout(url, timeout = FETCH_TIMEOUT) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+function parseAnchorValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (!isNaN(n) && n.toString() === value.trim()) return n;
+    return value;
+  }
+  if (typeof value === "object" && value !== null) {
+    if (typeof value.toNumber === "function") return value.toNumber();
+    if (value.words && Array.isArray(value.words)) {
+      return parseAnchorValue(value.toString());
+    }
+    return Number(value);
+  }
+  return value;
+}
+
+function parseReadingTimestamp(timestamp) {
+  const parsed = parseAnchorValue(timestamp);
+  if (parsed === null) return null;
+  if (typeof parsed === "number") {
+    const seconds = parsed > 1e12 ? parsed / 1000 : parsed;
+    return new Date(seconds * 1000).toISOString();
+  }
+  const hexParsed = parseInt(parsed, 16);
+  if (!isNaN(hexParsed)) {
+    return new Date(hexParsed * 1000).toISOString();
+  }
+  const numParsed = Number(parsed);
+  if (!isNaN(numParsed)) {
+    const seconds = numParsed > 1e12 ? numParsed / 1000 : numParsed;
+    return new Date(seconds * 1000).toISOString();
+  }
+  return null;
+}
 
 function getAQIStatus(aqi) {
-  if (aqi <= 50) return { label: "Good", color: "#14F195" };
-  if (aqi <= 100) return { label: "Moderate", color: "#FFC300" };
-  if (aqi <= 150) return { label: "Unhealthy", color: "#FB8500" };
+  const v = parseFloat(aqi) || 0;
+  if (v <= 50) return { label: "Good", color: "#14F195" };
+  if (v <= 100) return { label: "Moderate", color: "#FFC300" };
+  if (v <= 150) return { label: "Unhealthy", color: "#FB8500" };
   return { label: "Hazardous", color: "#FF4444" };
 }
 
@@ -17,56 +61,76 @@ function normalizeSolanaSignature(value) {
   if (!value || typeof value !== "string") return null;
   if (value === "no-signature") return null;
   if (/^[0-9a-fA-F]{128}$/.test(value)) {
-    const bytes = value
-      .match(/.{1,2}/g)
-      .map((pair) => Number.parseInt(pair, 16));
+    const bytes = value.match(/.{1,2}/g).map((pair) => Number.parseInt(pair, 16));
     return bs58.encode(Uint8Array.from(bytes));
   }
   if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(value)) return value;
   return null;
 }
 
+function formatValue(val, decimals) {
+  const n = parseAnchorValue(val);
+  if (n === null || isNaN(n)) return "—";
+  return Number(n).toFixed(decimals);
+}
+
 function StatCard({ label, value, unit, highlight }) {
   const status = highlight ? getAQIStatus(value) : null;
   const color = highlight ? status.color : "#9945FF";
   return (
-    <div style={{ background: "#1E1E35", borderRadius: "12px", padding: "20px", borderLeft: "4px solid " + color }}>
-      <p style={{ color: "#8888AA", fontSize: "12px", margin: "0 0 8px 0" }}>{label}</p>
-      <p style={{ fontSize: "28px", fontWeight: "bold", margin: "0", color: highlight ? status.color : "white" }}>
+    <div className="stat-card" style={{ borderLeftColor: color }}>
+      <p className="stat-card-label">{label}</p>
+      <p className="stat-card-value" style={{ color: highlight ? status.color : "#fff" }}>
         {value}{unit}
       </p>
       {highlight && (
-        <p style={{ color: status.color, fontSize: "12px", margin: "4px 0 0 0" }}>{status.label}</p>
+        <p className="stat-card-status" style={{ color: status.color }}>{status.label}</p>
       )}
     </div>
   );
 }
 
-function ReadingRow({ r, i }) {
-  const status = getAQIStatus(r.aqi);
-  const normalizedSig = normalizeSolanaSignature(r.txSignature || r.signature);
-  const shortSig = normalizedSig ? normalizedSig.slice(0, 8) + "..." : "N/A";
-  const txUrl = normalizedSig ? "https://solscan.io/tx/" + normalizedSig + "?cluster=devnet" : null;
+function ReadingRow({ reading, onTxClick }) {
+  const status = getAQIStatus(reading.aqi);
+  const normalizedSig = normalizeSolanaSignature(reading.txSignature || reading.signature);
+  const shortSig = normalizedSig ? normalizedSig.slice(0, 8) + "..." : null;
+  const txUrl = normalizedSig ? `https://solscan.io/tx/${normalizedSig}?cluster=devnet` : null;
+  const timestamp = parseReadingTimestamp(reading.timestamp);
+
+  const handleTxClick = (e) => {
+    if (txUrl) return;
+    e.preventDefault();
+    if (onTxClick && reading.index !== undefined) {
+      onTxClick(reading.index);
+    }
+  };
+
   return (
-    <tr style={{ borderBottom: "1px solid #2A2A4A" }}>
-      <td style={{ padding: "10px 12px", color: "#8888AA" }}>
-        {new Date(r.timestamp).toLocaleTimeString()}
+    <tr>
+      <td style={{ color: "#8888AA" }}>
+        {timestamp ? new Date(timestamp).toLocaleTimeString() : "—"}
       </td>
-      <td style={{ padding: "10px 12px", color: "#9945FF" }}>{r.nodeId}</td>
-      <td style={{ padding: "10px 12px" }}>
-        <span style={{ color: status.color, fontWeight: "bold" }}>{r.aqi}</span>
+      <td className="node-id">{reading.nodeId}</td>
+      <td>
+        <span style={{ color: status.color, fontWeight: "bold" }}>{formatValue(reading.aqi, 1)}</span>
         <span style={{ color: status.color, fontSize: "11px", marginLeft: "6px" }}>{status.label}</span>
       </td>
-      <td style={{ padding: "10px 12px" }}>{r.co2}</td>
-      <td style={{ padding: "10px 12px" }}>{r.temperature}</td>
-      <td style={{ padding: "10px 12px" }}>{r.humidity}</td>
-      <td style={{ padding: "10px 12px" }}>
-        {normalizedSig ? (
-          <a href={txUrl} target="_blank" rel="noreferrer" style={{ color: "#14F195", fontSize: "11px" }}>
+      <td>{formatValue(reading.co2, 1)}</td>
+      <td>{formatValue(reading.temperature, 1)}</td>
+      <td>{formatValue(reading.humidity, 1)}</td>
+      <td>
+        {txUrl ? (
+          <a href={txUrl} target="_blank" rel="noopener noreferrer" className="tx-link">
             {shortSig}
           </a>
+        ) : reading.txLoading ? (
+          <span className="tx-loading">Loading...</span>
+        ) : reading.txSignature === null && reading.signature && reading.signature !== "no-signature" ? (
+          <span className="tx-loading" style={{ cursor: "pointer" }} onClick={handleTxClick}>
+            {shortSig || "Verify"}
+          </span>
         ) : (
-          <span style={{ color: "#555577", fontSize: "11px" }}>N/A</span>
+          <span className="tx-na">N/A</span>
         )}
       </td>
     </tr>
@@ -76,113 +140,163 @@ function ReadingRow({ r, i }) {
 export default function App() {
   const [readings, setReadings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [locality, setLocality] = useState(null);
-  async function fetchReadings() {
+
+  const fetchTxSignature = useCallback(async (index) => {
+    setReadings((prev) =>
+      prev.map((r) => (r.index === index ? { ...r, txLoading: true } : r))
+    );
     try {
-      const response = await fetch("https://airchain-server-c0cma4dcc6fgbhdd.centralindia-01.azurewebsites.net/readings/esp32_node_1");
+      const res = await fetchWithTimeout(`${API_BASE}/tx-signature/esp32_node_1/${index}`, 8000);
+      const data = await res.json();
+      if (data.success && data.signature) {
+        setReadings((prev) =>
+          prev.map((r) =>
+            r.index === index ? { ...r, txSignature: data.signature, txLoading: false } : r
+          )
+        );
+      } else {
+        setReadings((prev) =>
+          prev.map((r) => (r.index === index ? { ...r, txLoading: false } : r))
+        );
+      }
+    } catch {
+      setReadings((prev) =>
+        prev.map((r) => (r.index === index ? { ...r, txLoading: false } : r))
+      );
+    }
+  }, []);
+
+  const fetchReadings = useCallback(async () => {
+    try {
+      setError(null);
+      const response = await fetchWithTimeout(`${API_BASE}/readings/esp32_node_1`);
       const data = await response.json();
 
       if (data.success) {
         const sorted = data.readings
-  .map((r, i) => ({
-    ...r,
-    co2: parseFloat(r.co2).toFixed(1),
-    temperature: parseFloat(r.temperature).toFixed(1),
-    humidity: parseFloat(r.humidity).toFixed(1),
-    aqi: parseFloat(r.aqi).toFixed(1),
-    timestamp: new Date(parseInt(r.timestamp, 16) * 1000).toISOString(),
-    index: i,
-  }))
-  .reverse();
+          .map((r, i) => ({
+            ...r,
+            index: i,
+            txLoading: false,
+          }))
+          .reverse();
         setReadings(sorted);
+      } else {
+        setReadings([]);
+        setError(data.error || "Failed to fetch readings");
       }
 
-      const localityRes = await fetch("https://airchain-server-c0cma4dcc6fgbhdd.centralindia-01.azurewebsites.net/locality/Bengaluru");
-      const localityData = await localityRes.json();
-      if (localityData.success) {
-        setLocality(localityData.locality);
+      try {
+        const localityRes = await fetchWithTimeout(`${API_BASE}/locality/Bengaluru`);
+        const localityData = await localityRes.json();
+        if (localityData.success) {
+          setLocality(localityData.locality);
+        }
+      } catch {
+        // locality is non-critical
       }
 
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err) {
+      if (err.name === "AbortError") {
+        setError("Request timed out. The server or network may be slow.");
+      } else {
+        setError("Failed to connect to the server. Please check your connection.");
+      }
       console.error("Error fetching readings:", err);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     fetchReadings();
     const interval = setInterval(fetchReadings, 20000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchReadings]);
 
   const latest = readings[0];
 
   return (
-    <div style={{ background: "#0D0D1A", minHeight: "100vh", color: "white", fontFamily: "monospace", padding: "24px" }}>
-      <div style={{ marginBottom: "24px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <img src={logo} alt="Airchain logo" style={{ width: "32px", height: "32px" }} />
-          <h1 style={{ color: "#9945FF", fontSize: "28px", margin: 0 }}>AirChain</h1>
+    <div className="app">
+      <div className="header">
+        <div className="header-row">
+          <img src={logo} alt="Airchain logo" className="header-logo" />
+          <h1 className="header-title">AirChain</h1>
         </div>
-        <p style={{ color: "#8888AA", margin: "4px 0 0 0" }}>Decentralized Air Quality Monitor — Solana Devnet</p>
+        <p className="header-subtitle">Decentralized Air Quality Monitor — Solana Devnet</p>
         {lastUpdated && (
-          <p style={{ color: "#555577", fontSize: "12px", margin: "4px 0 0 0" }}>Last updated: {lastUpdated}</p>
+          <p className="header-updated">Last updated: {lastUpdated}</p>
         )}
       </div>
-       
-      {locality && (
-  <div style={{ background: "#1E1E35", borderRadius: "12px", padding: "16px", marginBottom: "24px", display: "flex", gap: "32px" }}>
-    <div>
-      <p style={{ color: "#8888AA", fontSize: "11px", margin: "0 0 4px 0" }}>LOCALITY</p>
-      <p style={{ color: "#9945FF", fontSize: "16px", fontWeight: "bold", margin: 0 }}>{locality.name}</p>
-    </div>
-    <div>
-      <p style={{ color: "#8888AA", fontSize: "11px", margin: "0 0 4px 0" }}>NODES</p>
-      <p style={{ color: "white", fontSize: "16px", fontWeight: "bold", margin: 0 }}>{locality.nodeCount}</p>
-    </div>
-    <div>
-      <p style={{ color: "#8888AA", fontSize: "11px", margin: "0 0 4px 0" }}>AVG AQI</p>
-      <p style={{ color: "#14F195", fontSize: "16px", fontWeight: "bold", margin: 0 }}>{locality.averageAqi}</p>
-    </div>
-  </div>
-)}
 
-      {latest && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "32px" }}>
-          <StatCard label="AQI" value={latest.aqi} unit="" highlight={true} />
-          <StatCard label="CO2" value={latest.co2} unit=" ppm" highlight={false} />
-          <StatCard label="Temperature" value={latest.temperature} unit="°C" highlight={false} />
-          <StatCard label="Humidity" value={latest.humidity} unit="%" highlight={false} />
+      {locality && (
+        <div className="locality-card">
+          <div>
+            <p className="locality-field-label">Locality</p>
+            <p className="locality-field-value">{locality.name}</p>
+          </div>
+          <div>
+            <p className="locality-field-label">Nodes</p>
+            <p className="locality-field-value white">{locality.nodeCount}</p>
+          </div>
+          <div>
+            <p className="locality-field-label">Avg AQI</p>
+            <p className="locality-field-value green">{locality.averageAqi}</p>
+          </div>
         </div>
       )}
 
-      <div style={{ background: "#1E1E35", borderRadius: "12px", padding: "20px" }}>
-        <h2 style={{ color: "#14F195", fontSize: "14px", margin: "0 0 16px 0", letterSpacing: "1px" }}>
-          RECENT ON-CHAIN READINGS
-        </h2>
+      {latest && (
+        <div className="stats-grid">
+          <StatCard label="AQI" value={formatValue(latest.aqi, 1)} unit="" highlight />
+          <StatCard label="CO2" value={formatValue(latest.co2, 1)} unit=" ppm" />
+          <StatCard label="Temperature" value={formatValue(latest.temperature, 1)} unit="°C" />
+          <StatCard label="Humidity" value={formatValue(latest.humidity, 1)} unit="%" />
+        </div>
+      )}
+
+      <div className="readings-section">
+        <h2 className="readings-title">Recent On-Chain Readings</h2>
 
         {loading ? (
-          <p style={{ color: "#8888AA" }}>Fetching from Solana...</p>
+          <p className="loading-text">Fetching from Solana...</p>
+        ) : error ? (
+          <div className="error-container">
+            <p>{error}</p>
+            <button
+              className="retry-btn"
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                fetchReadings();
+              }}
+            >
+              Retry
+            </button>
+          </div>
         ) : readings.length === 0 ? (
-          <p style={{ color: "#8888AA" }}>No readings found yet.</p>
+          <p className="empty-text">No readings found yet.</p>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-            <thead>
-              <tr style={{ color: "#8888AA", borderBottom: "1px solid #2A2A4A" }}>
-                {["Timestamp", "Node", "AQI", "CO2 (ppm)", "Temp (°C)", "Humidity (%)", "Transaction"].map((h) => (
-                  <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontWeight: "normal" }}>{h}</th>
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  {["Timestamp", "Node", "AQI", "CO₂ (ppm)", "Temp (°C)", "Humidity (%)", "Transaction"].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {readings.map((r) => (
+                  <ReadingRow key={r.index} reading={r} onTxClick={fetchTxSignature} />
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {readings.map((r, i) => (
-                <ReadingRow key={i} r={r} i={i} />
-              ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
