@@ -44,7 +44,7 @@ function StatCard({ label, value, unit, highlight }) {
 
 function ReadingRow({ r, i }) {
   const status = getAQIStatus(r.aqi);
-  const normalizedSig = normalizeSolanaSignature(r.signature);
+  const normalizedSig = normalizeSolanaSignature(r.txSignature || r.signature);
   const shortSig = normalizedSig ? normalizedSig.slice(0, 8) + "..." : "N/A";
   const txUrl = normalizedSig ? "https://solscan.io/tx/" + normalizedSig + "?cluster=devnet" : null;
   return (
